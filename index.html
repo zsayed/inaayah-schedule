@@ -1,0 +1,293 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+
+// Global variables provided by the Canvas environment
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// Initial schedule data (this will be the default if no data is in Firestore)
+const initialSchedule = [
+    { id: 'morning-wakeup-fajr', time: '5:30 AM', description: 'Wakeup, Brush & Fajr Namaz', icon: '⏰🦷🕌', completed: false, section: 'morning' },
+    { id: 'morning-bath', time: '06:00 - 06:30 AM', description: 'Bath Time', icon: '🛀', completed: false, section: 'morning' },
+    { id: 'morning-books-reading', time: '6:30 - 07:00 AM', description: 'Books Reading', icon: '📚', completed: false, section: 'morning' },
+    { id: 'morning-writing', time: '07:00 - 07:30 AM', description: 'Writing Practice', icon: '✍️', completed: false, section: 'morning' },
+    { id: 'morning-breakfast-homework', time: '07:30 - 08:30 AM', description: 'Breakfast & School Homework', icon: '🍳🏫📝', completed: false, section: 'morning' },
+    { id: 'morning-get-ready', time: '08:30 - 09:00 AM', description: 'Get Ready for School', icon: '🎒', completed: false, section: 'morning' },
+    { id: 'afternoon-freshen-up', time: '03:00 - 03:30 PM', description: 'Freshen Up After School', icon: '🚿👕', completed: false, section: 'afternoon' },
+    { id: 'afternoon-tuitions', time: '03:30 - 04:50 PM', description: 'Tuitions', icon: '🧑‍🏫', completed: false, section: 'afternoon' },
+    { id: 'afternoon-islamic-studies', time: '05:00 - 06:00 PM', description: 'Islamic Studies', icon: '📖⭐', completed: false, section: 'afternoon' },
+    { id: 'evening-dinner-screentime', time: '06:00 - 07:30 PM', description: 'Dinner & Screen Time', icon: '🍽️📱', completed: false, section: 'evening' },
+    { id: 'evening-playtime', time: '07:30 - 08:00 PM', description: 'Play Time Outside', icon: '⚽🌳', completed: false, section: 'evening' },
+    { id: 'evening-brush-story', time: '08:00 - 08:30 PM', description: 'Brush & Story Reading', icon: '🦷📖', completed: false, section: 'evening' },
+    { id: 'evening-sleep', time: '08:30 PM', description: 'Sweet Dreams! (Sleep)', icon: '😴', completed: false, section: 'evening' },
+];
+
+function App() {
+    const [schedule, setSchedule] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+
+    // Initialize Firebase and set up authentication listener
+    useEffect(() => {
+        try {
+            const app = initializeApp(firebaseConfig);
+            const firestoreDb = getFirestore(app);
+            const firebaseAuth = getAuth(app);
+            setDb(firestoreDb);
+            setAuth(firebaseAuth);
+
+            // Listen for authentication state changes
+            const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+                if (user) {
+                    setUserId(user.uid);
+                    setIsAuthReady(true);
+                } else {
+                    // Sign in anonymously if no user is logged in and no custom token is provided
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(firebaseAuth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(firebaseAuth);
+                        }
+                    } catch (authError) {
+                        console.error("Firebase authentication error:", authError);
+                        setError("Failed to authenticate. Please try again.");
+                        setIsAuthReady(true); // Mark auth as ready even if failed, to stop loading indefinitely
+                    }
+                }
+            });
+
+            return () => unsubscribe(); // Cleanup auth listener
+        } catch (initError) {
+            console.error("Firebase initialization error:", initError);
+            setError("Failed to initialize Firebase. Please check console for details.");
+            setLoading(false); // Stop loading if init fails
+        }
+    }, []);
+
+    // Fetch or initialize schedule data from Firestore
+    useEffect(() => {
+        if (!db || !userId || !isAuthReady) return;
+
+        const scheduleDocRef = doc(db, `artifacts/${appId}/users/${userId}/schedules`, 'inaayah-daily-schedule');
+
+        const unsubscribe = onSnapshot(scheduleDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setSchedule(data.activities || initialSchedule);
+            } else {
+                // Document doesn't exist, create it with initial schedule
+                console.log("No schedule found in Firestore, initializing...");
+                setDoc(scheduleDocRef, { activities: initialSchedule })
+                    .then(() => setSchedule(initialSchedule))
+                    .catch((e) => {
+                        console.error("Error setting initial document:", e);
+                        setError("Failed to save initial schedule.");
+                    });
+            }
+            setLoading(false);
+        }, (err) => {
+            console.error("Error listening to schedule changes:", err);
+            setError("Failed to load schedule. Please check your connection.");
+            setLoading(false);
+        });
+
+        return () => unsubscribe(); // Cleanup snapshot listener
+    }, [db, userId, isAuthReady]); // Re-run when db, userId, or auth status changes
+
+    // Function to handle checkbox change
+    const handleCheckboxChange = useCallback(async (activityId) => {
+        if (!db || !userId) {
+            console.error("Database or User ID not available.");
+            setError("Cannot save progress: Not connected to database.");
+            return;
+        }
+
+        const updatedSchedule = schedule.map(activity =>
+            activity.id === activityId ? { ...activity, completed: !activity.completed } : activity
+        );
+        setSchedule(updatedSchedule); // Optimistic UI update
+
+        const scheduleDocRef = doc(db, `artifacts/${appId}/users/${userId}/schedules`, 'inaayah-daily-schedule');
+        try {
+            await setDoc(scheduleDocRef, { activities: updatedSchedule });
+        } catch (e) {
+            console.error("Error updating document:", e);
+            setError("Failed to save progress. Please try again.");
+            // Revert UI if save fails, or add a visual indicator
+            setSchedule(prevSchedule => prevSchedule.map(activity =>
+                activity.id === activityId ? { ...activity, completed: !activity.completed } : activity
+            ));
+        }
+    }, [db, userId, schedule]);
+
+    // Function to reset all checkboxes
+    const resetSchedule = useCallback(async () => {
+        if (!db || !userId) {
+            setError("Cannot reset schedule: Not connected to database.");
+            return;
+        }
+
+        const confirmed = window.confirm("Are you sure you want to reset Inaayah's schedule for a new day?");
+        if (!confirmed) return; // Custom confirm replacement for alert()
+
+        const clearedSchedule = initialSchedule.map(activity => ({ ...activity, completed: false }));
+        setSchedule(clearedSchedule); // Optimistic UI update
+
+        const scheduleDocRef = doc(db, `artifacts/${appId}/users/${userId}/schedules`, 'inaayah-daily-schedule');
+        try {
+            await setDoc(scheduleDocRef, { activities: clearedSchedule });
+        } catch (e) {
+            console.error("Error resetting document:", e);
+            setError("Failed to reset schedule. Please try again.");
+            // Revert UI if save fails
+            setSchedule(initialSchedule); // Or fetch from DB again
+        }
+    }, [db, userId]);
+
+
+    // Group activities by section for rendering
+    const groupedSchedule = initialSchedule.reduce((acc, activity) => {
+        if (!acc[activity.section]) {
+            acc[activity.section] = [];
+        }
+        acc[activity.section].push(activity);
+        return acc;
+    }, {});
+
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-[#f0f4f8]">
+                <div className="text-xl font-semibold text-[#6a0572]">Loading Inaayah's Schedule...</div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-red-100 text-red-700 p-4">
+                <div className="text-xl font-semibold">Error: {error}</div>
+                <div className="text-sm mt-2">Please refresh the page or try again later.</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-4 sm:p-8 md:p-12 min-h-screen flex items-center justify-center font-inter bg-[#f0f4f8]">
+            <div className="max-w-4xl w-full mx-auto bg-white p-6 sm:p-8 md:p-10 rounded-2xl shadow-xl">
+                <h1 className="text-center text-4xl sm:text-5xl md:text-6xl font-extrabold text-[#6a0572] mb-8 sm:mb-10 animate-bounce">
+                    Inaayah's Daily Fun Schedule!
+                </h1>
+
+                {/* Display User ID */}
+                <div className="text-center text-gray-500 mb-6 text-sm">
+                    User ID: <span className="font-mono bg-gray-100 p-1 rounded">{userId || 'Loading...'}</span>
+                </div>
+
+                {/* Reset Button */}
+                <div className="flex justify-center mb-8">
+                    <button
+                        onClick={resetSchedule}
+                        className="bg-[#6a0572] hover:bg-purple-800 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105"
+                    >
+                        Reset Schedule for a New Day
+                    </button>
+                </div>
+
+                {/* Morning Section */}
+                <div className="mb-8">
+                    <h2 className="bg-[#6a0572] text-white p-3 rounded-xl mb-4 inline-block text-xl sm:text-2xl font-bold shadow-md">🌅 Morning</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {schedule
+                            .filter(activity => activity.section === 'morning')
+                            .map(activity => (
+                                <div key={activity.id} className="bg-white rounded-xl shadow-md p-4 flex flex-col justify-between transition-transform duration-200 ease-in-out hover:scale-[1.02]">
+                                    <div className="flex items-center space-x-3 mb-2">
+                                        <span className="text-4xl icon">{activity.icon}</span>
+                                        <div>
+                                            <div className="text-[#6a0572] font-semibold text-lg">{activity.time}</div>
+                                            <div className="text-gray-700 text-base">{activity.description}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-center pt-2 border-t border-gray-100 mt-auto">
+                                        <input
+                                            type="checkbox"
+                                            className="transform scale-150 sm:scale-[1.75] md:scale-200 accent-[#6a0572] cursor-pointer"
+                                            checked={activity.completed}
+                                            onChange={() => handleCheckboxChange(activity.id)}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                    </div>
+                </div>
+
+                {/* Afternoon Section */}
+                <div className="mb-8">
+                    <h2 className="bg-[#10b981] text-white p-3 rounded-xl mb-4 inline-block text-xl sm:text-2xl font-bold shadow-md">☀️ Afternoon</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {schedule
+                            .filter(activity => activity.section === 'afternoon')
+                            .map(activity => (
+                                <div key={activity.id} className="bg-white rounded-xl shadow-md p-4 flex flex-col justify-between transition-transform duration-200 ease-in-out hover:scale-[1.02]">
+                                    <div className="flex items-center space-x-3 mb-2">
+                                        <span className="text-4xl icon">{activity.icon}</span>
+                                        <div>
+                                            <div className="text-[#6a0572] font-semibold text-lg">{activity.time}</div>
+                                            <div className="text-gray-700 text-base">{activity.description}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-center pt-2 border-t border-gray-100 mt-auto">
+                                        <input
+                                            type="checkbox"
+                                            className="transform scale-150 sm:scale-[1.75] md:scale-200 accent-[#6a0572] cursor-pointer"
+                                            checked={activity.completed}
+                                            onChange={() => handleCheckboxChange(activity.id)}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                    </div>
+                </div>
+
+                {/* Evening Section */}
+                <div>
+                    <h2 className="bg-[#eab307] text-white p-3 rounded-xl mb-4 inline-block text-xl sm:text-2xl font-bold shadow-md">🌙 Evening</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {schedule
+                            .filter(activity => activity.section === 'evening')
+                            .map(activity => (
+                                <div key={activity.id} className="bg-white rounded-xl shadow-md p-4 flex flex-col justify-between transition-transform duration-200 ease-in-out hover:scale-[1.02]">
+                                    <div className="flex items-center space-x-3 mb-2">
+                                        <span className="text-4xl icon">{activity.icon}</span>
+                                        <div>
+                                            <div className="text-[#6a0572] font-semibold text-lg">{activity.time}</div>
+                                            <div className="text-gray-700 text-base">{activity.description}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-center pt-2 border-t border-gray-100 mt-auto">
+                                        <input
+                                            type="checkbox"
+                                            className="transform scale-150 sm:scale-[1.75] md:scale-200 accent-[#6a0572] cursor-pointer"
+                                            checked={activity.completed}
+                                            onChange={() => handleCheckboxChange(activity.id)}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export default App;
