@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/inaayah-schedule/static/css/main.e6c13ad2.css",
-    "main.js": "/inaayah-schedule/static/js/main.a03d11fb.js",
+    "main.js": "/inaayah-schedule/static/js/main.783840e1.js",
     "static/js/453.cd792ff5.chunk.js": "/inaayah-schedule/static/js/453.cd792ff5.chunk.js",
     "index.html": "/inaayah-schedule/index.html",
     "main.e6c13ad2.css.map": "/inaayah-schedule/static/css/main.e6c13ad2.css.map",
-    "main.a03d11fb.js.map": "/inaayah-schedule/static/js/main.a03d11fb.js.map",
+    "main.783840e1.js.map": "/inaayah-schedule/static/js/main.783840e1.js.map",
     "453.cd792ff5.chunk.js.map": "/inaayah-schedule/static/js/453.cd792ff5.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.e6c13ad2.css",
-    "static/js/main.a03d11fb.js"
+    "static/js/main.783840e1.js"
   ]
 }
