@@ -11,13 +11,13 @@ const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'defaul
 // IMPORTANT: Replace the empty object `{}` below with your actual Firebase project configuration.
 // You can find this in your Firebase project settings (Project settings -> General -> Your apps -> Firebase SDK snippet -> Config).
 const firebaseConfig = typeof window.__firebase_config !== 'undefined' ? JSON.parse(window.__firebase_config) : {
-    apiKey: "AIzaSyCyOZCt42iPPX7-karLoFiLlB_JMmVIPtA",
-    authDomain: "inaayah-schedule.firebaseapp.com",
-    projectId: "inaayah-schedule",
-    storageBucket: "inaayah-schedule.firebasestorage.app",
-    messagingSenderId: "833061472939",
-    appId: "1:833061472939:web:7f33039a18ee1924cbc5ee",
-    measurementId: "G-73LW0QNY5X"
+    apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+    authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.REACT_APP_FIREBASE_APP_ID,
+    measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
 
 const initialAuthToken = typeof window.__initial_auth_token !== 'undefined' ? window.__initial_auth_token : null;
